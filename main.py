@@ -1,6 +1,5 @@
 import os
 import json
-import time
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,91 +28,73 @@ if not TELEX_CHANNEL_ID:
 
 TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
 
+async def send_to_telex(client: httpx.Client, message: str) -> dict:
+    """Helper function to send messages to Telex with proper error handling"""
+    payload = {
+        "content": message
+    }
+    
+    response = client.post(
+        TELEX_WEBHOOK_URL,
+        json=payload,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        },
+        follow_redirects=True
+    )
+    response.raise_for_status()
+    return response.json()
+
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request):
     try:
         data = await request.json()
         
-        with httpx.Client() as client:
+        with httpx.Client(timeout=30.0) as client:
             # Handle ticket data
             if "ticket" in data:
                 ticket = data["ticket"]
-                ticket_id = str(ticket.get("id", "Unknown"))
-                subject = ticket.get("subject", "No Subject")
-                requester = ticket.get("requester", {})
-                requester_email = requester.get("email", "Unknown")
-                status = ticket.get("status", "Unknown")
-                priority = ticket.get("priority", "Unknown")
-                description = ticket.get("description", "No message provided")
-                latest_comment = ticket.get("latest_comment", {})
-                comment_body = latest_comment.get("body") if latest_comment else None
-
-                message_content = description
-                if comment_body:
-                    message_content += f"\n\nLatest Comment:\n{comment_body}"
-
-                ticket_payload = {
-                    "event_name": "Zendesk New Ticket",
-                    "username": "ZendeskBot",
-                    "status": "success",
-                    "message": (
-                        f"🎫 **New Ticket #{ticket_id}**\n\n"
-                        f"📌 **Subject:** {subject}\n"
-                        f"🔘 **Status:** {status}\n"
-                        f"⚡ **Priority:** {priority}\n"
-                        f"👤 **Requester:** {requester_email}\n\n"
-                        f"💬 **Message:**\n{message_content}"
-                    )
-                }
-
-                # 5-second delay before sending ticket payload
-                # time.sleep(5)
                 
-                client.post(
-                    TELEX_WEBHOOK_URL,
-                    json=ticket_payload,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json"
-                    },
-                    follow_redirects=True
-                )
+                # Format the ticket message
+                message = f"""🎫 **New Ticket #{ticket.get('id', 'Unknown')}**
 
-            # Handle message data
-            if "message" in data:
-                # 5-second delay before sending message payload
-                # time.sleep(5)
-                
-                message_payload = {
-                    "event_name": "Zendesk Ticket",
-                    "username": "ZendeskBot",
-                    "status": "success",
-                    "message": data["message"]
-                }
-                
-                client.post(
-                    TELEX_WEBHOOK_URL,
-                    json=message_payload,
-                    headers={
-                        "Accept": "application/json",
-                        "Content-Type": "application/json"
-                    },
-                    follow_redirects=True
-                )
+📌 **Subject:** {ticket.get('subject', 'No Subject')}
+🔘 **Status:** {ticket.get('status', 'Unknown')}
+⚡ **Priority:** {ticket.get('priority', 'Unknown')}
+👤 **Requester:** {ticket.get('requester', {}).get('email', 'Unknown')}
 
-        return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
+💬 **Description:**
+{ticket.get('description', 'No description provided')}"""
+
+                # Add latest comment if present
+                latest_comment = ticket.get('latest_comment', {})
+                if latest_comment and latest_comment.get('body'):
+                    message += f"\n\n📝 **Latest Comment:**\n{latest_comment['body']}"
+
+                await send_to_telex(client, message)
+
+            # Handle separate message data
+            if "message" in data and data["message"]:
+                message = f"💬 **New Comment:**\n{data['message']}"
+                await send_to_telex(client, message)
+
+        return JSONResponse(content={"message": "Successfully sent to Telex"}, status_code=200)
     
     except json.JSONDecodeError:
         return JSONResponse(content={"error": "Invalid JSON format"}, status_code=400)
     except httpx.HTTPStatusError as e:
-        return JSONResponse(
-            content={"error": f"Telex API error: {e.response.text}"},
-            status_code=e.response.status_code
-        )
-    except httpx.RequestError:
-        return JSONResponse(content={"error": "Failed to send request to Telex"}, status_code=500)
+        error_message = f"Telex API error: {str(e)}\nResponse: {e.response.text if hasattr(e, 'response') else 'No response text'}"
+        print(error_message)
+        return JSONResponse(content={"error": error_message}, status_code=e.response.status_code if hasattr(e, 'response') else 500)
+    except httpx.RequestError as e:
+        error_message = f"Failed to send request to Telex: {str(e)}"
+        print(error_message)
+        return JSONResponse(content={"error": error_message}, status_code=500)
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        error_message = f"Unexpected error: {str(e)}"
+        print(error_message)
+        return JSONResponse(content={"error": error_message}, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn
