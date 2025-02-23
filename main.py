@@ -42,10 +42,10 @@ async def zendesk_integration(request: Request) -> JSONResponse:
         headers = dict(request.headers)
         logger.info(f"Request headers: {headers}")
 
-        # # Handle settings request from Telex
-        # if "settings" in data:
-        #     logger.info("Received settings configuration request")
-        #     return JSONResponse(content={"message": "Settings received"}, status_code=200)
+        # Ignore Telex "settings" requests
+        if "settings" in data:
+            logger.info("Received settings configuration request. Ignoring.")
+            return JSONResponse(content={"message": "Ignored settings request"}, status_code=200)
 
         # Extract ticket data
         ticket = data.get("ticket")
