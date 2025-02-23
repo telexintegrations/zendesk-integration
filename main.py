@@ -1,11 +1,12 @@
 import os
 import json
 import logging
+import httpx
+import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
-import httpx
 
 # Configure logging
 logging.basicConfig(
@@ -36,14 +37,15 @@ if not TELEX_CHANNEL_ID:
 
 TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
 
+
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request):
     try:
         data = await request.json()
-        logger.info(f"Received request data: {data}")
+        logger.info(f"✅ Received request data: {json.dumps(data, indent=2)}")
 
         async with httpx.AsyncClient() as client:
-            # Check for ticket data and send it separately
+            # Handling ticket data
             if "ticket" in data:
                 ticket = data["ticket"]
                 ticket_id = str(ticket.get("id", "Unknown"))
@@ -74,7 +76,8 @@ async def zendesk_integration(request: Request):
                     )
                 }
 
-                logger.info(f"Sending Telex Ticket Payload: {ticket_payload}")
+                logger.info(f"📤 Sending Telex Ticket Payload:\n{json.dumps(ticket_payload, indent=2)}")
+
                 ticket_response = await client.post(
                     TELEX_WEBHOOK_URL,
                     json=ticket_payload,
@@ -84,10 +87,16 @@ async def zendesk_integration(request: Request):
                     },
                     follow_redirects=True
                 )
-                logger.info(f"Telex Ticket Response: {ticket_response.status_code} - {ticket_response.text}")
+
+                logger.info(f"✅ Telex Ticket Response: {ticket_response.status_code} - {ticket_response.text}")
+
+                # If Telex rejects the request, raise an error
                 ticket_response.raise_for_status()
 
-            # Check for message data and send it separately
+                # Delay to prevent rate-limiting issues
+                await asyncio.sleep(1)
+
+            # Handling message data separately
             if "message" in data:
                 message_payload = {
                     "event_name": "Zendesk Ticket",
@@ -96,7 +105,8 @@ async def zendesk_integration(request: Request):
                     "message": data["message"]
                 }
 
-                logger.info(f"Sending Telex Message Payload: {message_payload}")
+                logger.info(f"📤 Sending Telex Message Payload:\n{json.dumps(message_payload, indent=2)}")
+
                 message_response = await client.post(
                     TELEX_WEBHOOK_URL,
                     json=message_payload,
@@ -106,29 +116,33 @@ async def zendesk_integration(request: Request):
                     },
                     follow_redirects=True
                 )
-                logger.info(f"Telex Message Response: {message_response.status_code} - {message_response.text}")
+
+                logger.info(f"✅ Telex Message Response: {message_response.status_code} - {message_response.text}")
+
+                # If Telex rejects the request, raise an error
                 message_response.raise_for_status()
 
         return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
 
     except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON data: {str(e)}")
+        logger.error(f"❌ Invalid JSON data: {str(e)}")
         return JSONResponse(content={"error": "Invalid JSON format"}, status_code=400)
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"Telex HTTP error: {e.response.status_code}, Response Body: {e.response.text}")
+        logger.error(f"❌ Telex HTTP error: {e.response.status_code}, Response Body: {e.response.text}")
         return JSONResponse(
             content={"error": f"Telex API error: {e.response.text}"},
             status_code=e.response.status_code
         )
 
     except httpx.RequestError as e:
-        logger.error(f"Failed to send request to Telex: {str(e)}")
+        logger.error(f"❌ Failed to send request to Telex: {str(e)}")
         return JSONResponse(content={"error": "Failed to send request to Telex"}, status_code=500)
 
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"❌ Unexpected error: {str(e)}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
 
 if __name__ == "__main__":
     import uvicorn
