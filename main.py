@@ -1,10 +1,41 @@
 import os
+import json
+import logging
+from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import httpx
-import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+# Initialize FastAPI app
+app = FastAPI()
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Fetch Telex Channel ID from environment variables
+TELEX_CHANNEL_ID = os.getenv("TELEX_CHANNEL_ID")
+if not TELEX_CHANNEL_ID:
+    raise ValueError("TELEX_CHANNEL_ID is not set in environment variables!")
+
+TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
 
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request):
@@ -33,6 +64,13 @@ async def zendesk_integration(request: Request):
             requester_email = requester.get("email", "Unknown")
             status = ticket.get("status", "Unknown")
             description = ticket.get("description", "No message provided")
+
+            # Log extracted ticket details
+            logger.info(
+                f"Extracted Ticket Details: ID={ticket_id}, Subject={subject}, "
+                f"Requester={requester_email}, Status={status}, "
+                f"Message={description}"
+            )
 
             telex_payload = {
                 "event_name": "Zendesk New Ticket",
@@ -85,6 +123,28 @@ async def zendesk_integration(request: Request):
             response.raise_for_status()
             return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
 
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON data: {str(e)}")
+        return JSONResponse(content={"error": "Invalid JSON format"}, status_code=400)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Telex HTTP error: {e.response.status_code}, Response Body: {e.response.text}")
+        return JSONResponse(
+            content={"error": f"Telex API error: {e.response.text}"},
+            status_code=e.response.status_code
+        )
+
+    except httpx.RequestError as e:
+        logger.error(f"Failed to send request to Telex: {str(e)}")
+        return JSONResponse(
+            content={"error": "Failed to send request to Telex"},
+            status_code=500
+        )
+
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
