@@ -32,7 +32,7 @@ if not TELEX_CHANNEL_ID:
 TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
 
 @app.post("/zendesk-integration")
-async def zendesk_integration(request: Request) -> JSONResponse:
+async def zendesk_integration(request: Request):
     try:
         # Read incoming JSON request
         data = await request.json()
@@ -41,11 +41,6 @@ async def zendesk_integration(request: Request) -> JSONResponse:
         # Debugging: Log request headers
         headers = dict(request.headers)
         logger.info(f"Request headers: {headers}")
-
-        # Ignore Telex "settings" requests
-        if "settings" in data:
-            logger.info("Received settings configuration request. Ignoring.")
-            return JSONResponse(content={"message": "Ignored settings request"}, status_code=200)
 
         # Extract ticket data
         ticket = data.get("ticket")
@@ -95,17 +90,23 @@ async def zendesk_integration(request: Request) -> JSONResponse:
                 follow_redirects=True
             )
 
-            # Log response status and content
+            # Log response status and full response content
             logger.info(f"Telex Response Status: {response.status_code}")
+            logger.info(f"Telex Response Headers: {response.headers}")
             logger.info(f"Telex Response Body: {response.text}")
 
             # Ensure request was successful
             response.raise_for_status()
             return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
 
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Telex HTTP error: {e.response.status_code}, Response Body: {e.response.text}")
+        return JSONResponse(content={"error": f"Telex API error: {e.response.text}"}, status_code=e.response.status_code)
+
     except httpx.RequestError as e:
         logger.error(f"Failed to send request to Telex: {str(e)}")
         return JSONResponse(content={"error": "Failed to send request to Telex"}, status_code=500)
+
     except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
