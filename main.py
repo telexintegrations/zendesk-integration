@@ -1,3 +1,11 @@
+import os
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+import httpx
+import logging
+
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request):
     try:
