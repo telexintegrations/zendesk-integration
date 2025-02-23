@@ -82,7 +82,7 @@ async def zendesk_integration(request: Request):
                     f"💬 **Message:**\n{message_content}"
                 )
             }
-        elif "message" in data:
+        if "message" in data:
             telex_payload = {
                 "event_name": "Zendesk Ticket",
                 "username": "ZendeskBot",
