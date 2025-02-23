@@ -42,6 +42,7 @@ async def zendesk_integration(request: Request) -> JSONResponse:
             logger.error("Missing ticket data in request")
             return JSONResponse(content={"error": "Missing 'ticket' data in request."}, status_code=400)
 
+        # Extract ticket details
         ticket_id = str(ticket.get("id", "Unknown"))
         requester = ticket.get("requester", {})
         subject = ticket.get("subject", "No Subject")
@@ -50,25 +51,19 @@ async def zendesk_integration(request: Request) -> JSONResponse:
         priority = ticket.get("priority", "Unknown")
         message = ticket.get("latest_comment", {}).get("body") or ticket.get("description") or "No message provided"
 
-        # Restructured payload for Telex
-        message_content = (
-            f"🎫 Ticket #{ticket_id}\n"
-            f"📌 Subject: {subject}\n"
-            f"🔘 Status: {status}\n"
-            f"⚡ Priority: {priority}\n"
-            f"👤 Requester: {requester_email}\n"
-            f"💬 Message: {message}"
-        )
-
+        # Using the required Telex payload structure
         telex_payload = {
-            "text": message_content,
-            "event": {
-                "name": "Zendesk New Ticket",
-                "status": "success"
-            },
-            "sender": {
-                "username": "ZendeskBot"
-            }
+            "event_name": "Zendesk New Ticket",
+            "username": "ZendeskBot",
+            "status": "success",
+            "message": (
+                f"🎫 **New Ticket #{ticket_id}**\n\n"
+                f"📌 **Subject:** {subject}\n"
+                f"🔘 **Status:** {status}\n"
+                f"⚡ **Priority:** {priority}\n"
+                f"👤 **Requester:** {requester_email}\n\n"
+                f"💬 **Message:**\n{message}"
+            )
         }
 
         logger.info(f"Sending payload to Telex: {telex_payload}")
