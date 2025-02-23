@@ -96,4 +96,16 @@ async def zendesk_integration(request: Request) -> JSONResponse:
             )
 
             # Log response status and content
-            logger.info(f"Telex Response
+            logger.info(f"Telex Response Status: {response.status_code}")
+            logger.info(f"Telex Response Body: {response.text}")
+
+            # Ensure request was successful
+            response.raise_for_status()
+            return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
+
+    except httpx.RequestError as e:
+        logger.error(f"Failed to send request to Telex: {str(e)}")
+        return JSONResponse(content={"error": "Failed to send request to Telex"}, status_code=500)
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
