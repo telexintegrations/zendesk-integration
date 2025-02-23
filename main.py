@@ -4,6 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import httpx
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -32,10 +37,11 @@ async def zendesk_integration(request: Request) -> JSONResponse:
     try:
         # Parse JSON data
         data = await request.json()
+        logger.info(f"Received data: {data}")
+        
         ticket = data.get("ticket", {})
-
-        # Validate required fields
         if not ticket:
+            logger.error("Missing ticket data in request")
             return JSONResponse(content={"error": "Missing 'ticket' data in request."}, status_code=400)
 
         # Extract ticket details
@@ -62,6 +68,8 @@ async def zendesk_integration(request: Request) -> JSONResponse:
             )
         }
 
+        logger.info(f"Sending payload to Telex: {telex_payload}")
+
         # Send to Telex channel
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -76,7 +84,9 @@ async def zendesk_integration(request: Request) -> JSONResponse:
             response.raise_for_status()
             return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
 
-    except httpx.RequestError:
+    except httpx.RequestError as e:
+        logger.error(f"Failed to send request to Telex: {str(e)}")
         return JSONResponse(content={"error": "Failed to send request to Telex"}, status_code=500)
     except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
