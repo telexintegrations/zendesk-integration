@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -40,79 +39,77 @@ TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request):
     try:
-        # Read incoming JSON request
         data = await request.json()
         logger.info(f"Received request data: {data}")
 
-        # Check if the data contains ticket information
-        if "ticket" in data:
-            ticket = data["ticket"]
-            ticket_id = str(ticket.get("id", "Unknown"))
-            subject = ticket.get("subject", "No Subject")
-            requester = ticket.get("requester", {})
-            requester_email = requester.get("email", "Unknown")
-            status = ticket.get("status", "Unknown")
-            priority = ticket.get("priority", "Unknown")
-            description = ticket.get("description", "No message provided")
-            latest_comment = ticket.get("latest_comment", {})
-            comment_body = latest_comment.get("body") if latest_comment else None
-
-            # Log extracted ticket details
-            logger.info(
-                f"Extracted Ticket Details: ID={ticket_id}, Subject={subject}, "
-                f"Requester={requester_email}, Status={status}, "
-                f"Priority={priority}, Message={description}"
-            )
-
-            # Include latest comment if available
-            message_content = description
-            if comment_body:
-                message_content = f"{description}\n\nLatest Comment:\n{comment_body}"
-
-            telex_payload = {
-                "event_name": "Zendesk New Ticket",
-                "username": "ZendeskBot",
-                "status": "success",
-                "message": (
-                    f"🎫 **New Ticket #{ticket_id}**\n\n"
-                    f"📌 **Subject:** {subject}\n"
-                    f"🔘 **Status:** {status}\n"
-                    f"⚡ **Priority:** {priority}\n"
-                    f"👤 **Requester:** {requester_email}\n\n"
-                    f"💬 **Message:**\n{message_content}"
-                )
-            }
-        if "message" in data:
-            telex_payload = {
-                "event_name": "Zendesk Ticket",
-                "username": "ZendeskBot",
-                "status": "success",
-                "message": data["message"]
-            }
-        else:
-            logger.error("Invalid request format - missing ticket or message data")
-            return JSONResponse(content={"error": "Invalid request format"}, status_code=400)
-
-        logger.info(f"Telex Payload: {telex_payload}")
-
-        # Send to Telex
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                TELEX_WEBHOOK_URL,
-                json=telex_payload,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json"
-                },
-                follow_redirects=True
-            )
+            # Check for ticket data and send it separately
+            if "ticket" in data:
+                ticket = data["ticket"]
+                ticket_id = str(ticket.get("id", "Unknown"))
+                subject = ticket.get("subject", "No Subject")
+                requester = ticket.get("requester", {})
+                requester_email = requester.get("email", "Unknown")
+                status = ticket.get("status", "Unknown")
+                priority = ticket.get("priority", "Unknown")
+                description = ticket.get("description", "No message provided")
+                latest_comment = ticket.get("latest_comment", {})
+                comment_body = latest_comment.get("body") if latest_comment else None
 
-            logger.info(f"Telex Response Status: {response.status_code}")
-            logger.info(f"Telex Response Headers: {response.headers}")
-            logger.info(f"Telex Response Body: {response.text}")
+                message_content = description
+                if comment_body:
+                    message_content += f"\n\nLatest Comment:\n{comment_body}"
 
-            response.raise_for_status()
-            return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
+                ticket_payload = {
+                    "event_name": "Zendesk New Ticket",
+                    "username": "ZendeskBot",
+                    "status": "success",
+                    "message": (
+                        f"🎫 **New Ticket #{ticket_id}**\n\n"
+                        f"📌 **Subject:** {subject}\n"
+                        f"🔘 **Status:** {status}\n"
+                        f"⚡ **Priority:** {priority}\n"
+                        f"👤 **Requester:** {requester_email}\n\n"
+                        f"💬 **Message:**\n{message_content}"
+                    )
+                }
+
+                logger.info(f"Sending Telex Ticket Payload: {ticket_payload}")
+                ticket_response = await client.post(
+                    TELEX_WEBHOOK_URL,
+                    json=ticket_payload,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
+                    },
+                    follow_redirects=True
+                )
+                logger.info(f"Telex Ticket Response: {ticket_response.status_code} - {ticket_response.text}")
+                ticket_response.raise_for_status()
+
+            # Check for message data and send it separately
+            if "message" in data:
+                message_payload = {
+                    "event_name": "Zendesk Ticket",
+                    "username": "ZendeskBot",
+                    "status": "success",
+                    "message": data["message"]
+                }
+
+                logger.info(f"Sending Telex Message Payload: {message_payload}")
+                message_response = await client.post(
+                    TELEX_WEBHOOK_URL,
+                    json=message_payload,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
+                    },
+                    follow_redirects=True
+                )
+                logger.info(f"Telex Message Response: {message_response.status_code} - {message_response.text}")
+                message_response.raise_for_status()
+
+        return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
 
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON data: {str(e)}")
@@ -127,10 +124,7 @@ async def zendesk_integration(request: Request):
 
     except httpx.RequestError as e:
         logger.error(f"Failed to send request to Telex: {str(e)}")
-        return JSONResponse(
-            content={"error": "Failed to send request to Telex"},
-            status_code=500
-        )
+        return JSONResponse(content={"error": "Failed to send request to Telex"}, status_code=500)
 
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
