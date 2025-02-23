@@ -1,32 +1,3 @@
-import os
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
-import httpx
-
-# Load environment variables
-load_dotenv()
-
-# Initialize FastAPI
-app = FastAPI()
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["POST", "OPTIONS"],  
-    allow_headers=["*"],
-)
-
-# Retrieve Telex webhook details
-TELEX_CHANNEL_ID = os.getenv("TELEX_CHANNEL_ID")
-if not TELEX_CHANNEL_ID:
-    raise ValueError("TELEX_CHANNEL_ID is not set in environment variables!")
-
-TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
-
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request) -> JSONResponse:
     try:
@@ -53,12 +24,12 @@ async def zendesk_integration(request: Request) -> JSONResponse:
             "username": "ZendeskBot",
             "status": "success",
             "message": (
-                f"\U0001F3AB **Ticket #{ticket_id}\n"
-                f"\U0001F4CC **Subject:** {subject}\n"
-                f"\U0001F518 **Status:** {status}\n"
-                f"⚡ **Priority:** {priority}\n"
-                f"\U0001F464 **Requester:** {requester_email}\n"
-                f"\U0001F4AC **Message:** {message}"
+                f"\U0001F3AB Ticket #{ticket_id}\n"
+                f"\U0001F4CC Subject: {subject}\n"
+                f"\U0001F518 Status: {status}\n"
+                f"⚡ Priority: {priority}\n"
+                f"\U0001F464 Requester: {requester_email}\n"
+                f"\U0001F4AC Message: {message}"
             )
         }
 
