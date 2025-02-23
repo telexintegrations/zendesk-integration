@@ -44,33 +44,30 @@ async def zendesk_integration(request: Request):
         data = await request.json()
         logger.info(f"Received request data: {data}")
 
-        # Log headers for debugging
-        headers = dict(request.headers)
-        logger.info(f"Request headers: {headers}")
-
-        # Check the request source
-        user_agent = headers.get('user-agent', '')
-        
-        if "Zendesk Webhook" in user_agent:
-            # Handle Zendesk webhook format
-            if "ticket" not in data:
-                logger.error("Missing 'ticket' data in Zendesk webhook")
-                return JSONResponse(content={"error": "Missing ticket data"}, status_code=400)
-
+        # Check if the data contains ticket information
+        if "ticket" in data:
             ticket = data["ticket"]
             ticket_id = str(ticket.get("id", "Unknown"))
             subject = ticket.get("subject", "No Subject")
             requester = ticket.get("requester", {})
             requester_email = requester.get("email", "Unknown")
             status = ticket.get("status", "Unknown")
+            priority = ticket.get("priority", "Unknown")
             description = ticket.get("description", "No message provided")
+            latest_comment = ticket.get("latest_comment", {})
+            comment_body = latest_comment.get("body") if latest_comment else None
 
             # Log extracted ticket details
             logger.info(
                 f"Extracted Ticket Details: ID={ticket_id}, Subject={subject}, "
                 f"Requester={requester_email}, Status={status}, "
-                f"Message={description}"
+                f"Priority={priority}, Message={description}"
             )
+
+            # Include latest comment if available
+            message_content = description
+            if comment_body:
+                message_content = f"{description}\n\nLatest Comment:\n{comment_body}"
 
             telex_payload = {
                 "event_name": "Zendesk New Ticket",
@@ -80,27 +77,21 @@ async def zendesk_integration(request: Request):
                     f"🎫 **New Ticket #{ticket_id}**\n\n"
                     f"📌 **Subject:** {subject}\n"
                     f"🔘 **Status:** {status}\n"
-                    f"⚡ **Priority:** Unknown\n"
+                    f"⚡ **Priority:** {priority}\n"
                     f"👤 **Requester:** {requester_email}\n\n"
-                    f"💬 **Message:**\n{description}"
+                    f"💬 **Message:**\n{message_content}"
                 )
             }
-        elif "python-requests" in user_agent:
-            # Skip duplicate requests from the script
-            logger.info("Skipping duplicate request from script")
-            return JSONResponse(content={"message": "Skipped duplicate request"}, status_code=200)
+        elif "message" in data:
+            telex_payload = {
+                "event_name": "Zendesk Ticket",
+                "username": "ZendeskBot",
+                "status": "success",
+                "message": data["message"]
+            }
         else:
-            # Handle other formats if needed
-            if "message" in data:
-                telex_payload = {
-                    "event_name": "Zendesk Ticket",
-                    "username": "ZendeskBot",
-                    "status": "success",
-                    "message": data["message"]
-                }
-            else:
-                logger.error("Invalid request format")
-                return JSONResponse(content={"error": "Invalid request format"}, status_code=400)
+            logger.error("Invalid request format - missing ticket or message data")
+            return JSONResponse(content={"error": "Invalid request format"}, status_code=400)
 
         logger.info(f"Telex Payload: {telex_payload}")
 
