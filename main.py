@@ -67,7 +67,7 @@ async def zendesk_integration(request: Request):
                 }
 
                 # 5-second delay before sending ticket payload
-                time.sleep(5)
+                # time.sleep(5)
                 
                 client.post(
                     TELEX_WEBHOOK_URL,
@@ -82,7 +82,7 @@ async def zendesk_integration(request: Request):
             # Handle message data
             if "message" in data:
                 # 5-second delay before sending message payload
-                time.sleep(5)
+                # time.sleep(5)
                 
                 message_payload = {
                     "event_name": "Zendesk Ticket",
