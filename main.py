@@ -5,7 +5,107 @@ import requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenvimport os
+import json
+import logging
+import time
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+import httpx
+
+# Load environment variables
+load_dotenv()
+
+# Initialize FastAPI app
+app = FastAPI()
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Fetch Telex Channel ID from environment variables
+TELEX_CHANNEL_ID = os.getenv("TELEX_CHANNEL_ID")
+if not TELEX_CHANNEL_ID:
+    raise ValueError("TELEX_CHANNEL_ID is not set in environment variables!")
+
+TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
+
+@app.post("/zendesk-integration")
+async def zendesk_integration(request: Request):
+    try:
+        data = await request.json()
+        
+        time.sleep(5)  # 5-second delay before sending request
+        
+        with httpx.Client() as client:
+            if "ticket" in data:
+                ticket = data["ticket"]
+                ticket_payload = {
+                    "event_name": "Zendesk New Ticket",
+                    "username": "ZendeskBot",
+                    "status": "success",
+                    "message": (
+                        f"🎫 **New Ticket #{ticket.get('id', 'Unknown')}**\n\n"
+                        f"📌 **Subject:** {ticket.get('subject', 'No Subject')}\n"
+                        f"🔘 **Status:** {ticket.get('status', 'Unknown')}\n"
+                        f"⚡ **Priority:** {ticket.get('priority', 'Unknown')}\n"
+                        f"👤 **Requester:** {ticket.get('requester', {}).get('email', 'Unknown')}\n\n"
+                        f"💬 **Message:**\n{ticket.get('description', 'No message provided')}"
+                    )
+                }
+                client.post(
+                    TELEX_WEBHOOK_URL,
+                    json=ticket_payload,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
+                    },
+                    follow_redirects=True
+                )
+
+            time.sleep(5)  # 5-second delay before sending request
+            if "message" in data:
+                message_payload = {
+                    "event_name": "Zendesk Ticket",
+                    "username": "ZendeskBot",
+                    "status": "success",
+                    "message": data["message"]
+                }
+                client.post(
+                    TELEX_WEBHOOK_URL,
+                    json=message_payload,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
+                    },
+                    follow_redirects=True
+                )
+
+        return JSONResponse(content={"message": "Sent to Telex"}, status_code=200)
+    
+    except json.JSONDecodeError:
+        return JSONResponse(content={"error": "Invalid JSON format"}, status_code=400)
+    except httpx.HTTPStatusError as e:
+        return JSONResponse(
+            content={"error": f"Telex API error: {e.response.text}"},
+            status_code=e.response.status_code
+        )
+    except httpx.RequestError:
+        return JSONResponse(content={"error": "Failed to send request to Telex"}, status_code=500)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
 # Load environment variables
 load_dotenv()
