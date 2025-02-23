@@ -20,7 +20,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["POST", "OPTIONS"],  
+    allow_methods=["POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -42,38 +42,21 @@ async def zendesk_integration(request: Request):
         headers = dict(request.headers)
         logger.info(f"Request headers: {headers}")
 
-        # Extract ticket data
-        ticket = data.get("ticket")
-        if not ticket:
-            logger.error("Missing 'ticket' data in request.")
-            return JSONResponse(content={"error": "Missing 'ticket' data in request."}, status_code=400)
+        # Extract message from request
+        message = data.get("message")
+        if not message:
+            logger.error("No 'message' found in request data.")
+            return JSONResponse(content={"error": "No 'message' found in request."}, status_code=400)
 
-        # Extract ticket details
-        ticket_id = str(ticket.get("id", "Unknown"))
-        subject = ticket.get("subject", "No Subject")
-        requester = ticket.get("requester", {})
-        requester_email = requester.get("email", "Unknown")
-        status = ticket.get("status", "Unknown")
-        priority = ticket.get("priority", "Unknown")
-        message = ticket.get("latest_comment", {}).get("body") or ticket.get("description") or "No message provided"
-
-        # Log extracted details
-        logger.info(f"Extracted Ticket Details: ID={ticket_id}, Subject={subject}, Requester={requester_email}, "
-                    f"Status={status}, Priority={priority}, Message={message}")
+        # Log extracted message
+        logger.info(f"Extracted Message: {message}")
 
         # Construct Telex payload
         telex_payload = {
             "event_name": "Zendesk New Ticket",
             "username": "ZendeskBot",
             "status": "success",
-            "message": (
-                f"🎫 **New Ticket #{ticket_id}**\n\n"
-                f"📌 **Subject:** {subject}\n"
-                f"🔘 **Status:** {status}\n"
-                f"⚡ **Priority:** {priority}\n"
-                f"👤 **Requester:** {requester_email}\n\n"
-                f"💬 **Message:**\n{message}"
-            )
+            "message": message
         }
 
         logger.info(f"Telex Payload: {telex_payload}")
