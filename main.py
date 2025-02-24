@@ -1,6 +1,7 @@
 import os
 import json
 import httpx
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -11,6 +12,10 @@ load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 # CORS configuration
 app.add_middleware(
@@ -28,70 +33,84 @@ if not TELEX_CHANNEL_ID:
 
 TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
 
-async def send_to_telex(client: httpx.Client, message: str) -> dict:
+def send_to_telex(payload: dict):
     """Helper function to send messages to Telex with proper error handling"""
-    payload = {
-        "content": message
-    }
-    
-    response = client.post(
-        TELEX_WEBHOOK_URL,
-        json=payload,
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        },
-        follow_redirects=True
-    )
-    response.raise_for_status()
-    return response.json()
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            logger.info(f"Sending payload to Telex: {payload}")
+            response = client.post(
+                TELEX_WEBHOOK_URL,
+                json=payload,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                },
+                follow_redirects=True
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully sent to Telex. Response: {response.json()}")
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Telex API error: {e.response.text if hasattr(e, 'response') else 'No response text'}")
+        raise
+    except httpx.RequestError as e:
+        logger.error(f"Failed to send request to Telex: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        raise
 
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request):
     try:
         data = await request.json()
+        logger.info(f"Received data: {data}")
         
-        with httpx.Client(timeout=30.0) as client:
-            # Handle ticket data
-            if "ticket" in data:
-                ticket = data["ticket"]
-                
-                # Format the ticket message
-                message = f"""🎫 **New Ticket #{ticket.get('id', 'Unknown')}**
-
-📌 **Subject:** {ticket.get('subject', 'No Subject')}
-🔘 **Status:** {ticket.get('status', 'Unknown')}
-⚡ **Priority:** {ticket.get('priority', 'Unknown')}
-👤 **Requester:** {ticket.get('requester', {}).get('email', 'Unknown')}
-
-💬 **Description:**
-{ticket.get('description', 'No description provided')}"""
-
-                # Add latest comment if present
-                latest_comment = ticket.get('latest_comment', {})
-                if latest_comment and latest_comment.get('body'):
-                    message += f"\n\n📝 **Latest Comment:**\n{latest_comment['body']}"
-
-                await send_to_telex(client, message)
-
-            # Handle separate message data
-            if "message" in data and data["message"]:
-                message = f"💬 **New Comment:**\n{data['message']}"
-                await send_to_telex(client, message)
-
+        # Handle ticket data
+        if "ticket" in data:
+            ticket = data["ticket"]
+            ticket_payload = {
+                "event_name": "Zendesk New Ticket",
+                "username": "ZendeskBot",
+                "status": "success",
+                "message": (
+                    f"\U0001F3AB **Ticket:** #{ticket.get('id', 'Unknown')}\n"
+                    f"\U0001F4CC **Subject:** {ticket.get('subject', 'No Subject')}\n"
+                    f"\U0001F518 **Status:** {ticket.get('status', 'Unknown')}\n"
+                    f"⚡ **Priority:** {ticket.get('priority', 'Unknown')}\n"
+                    f"\U0001F464 **Requester:** {ticket.get('requester', {}).get('email', 'Unknown')}\n"
+                    f"\U0001F4AC **Message:** {ticket.get('description', 'No description provided')}"
+                )
+            }
+            send_to_telex(ticket_payload)
+        
+        # Handle separate message data
+        if "message" in data and data["message"]:
+            comment_payload = {
+                "event_name": "Zendesk New Comment",
+                "username": "ZendeskBot",
+                "status": "success",
+                "message": (
+                    f"\U0001F4AC **New Comment:**\n"
+                    f"{data['message']}"
+                )
+            }
+            send_to_telex(comment_payload)
+        
         return JSONResponse(content={"message": "Successfully sent to Telex"}, status_code=200)
     
     except json.JSONDecodeError:
+        logger.error("Invalid JSON format received")
         return JSONResponse(content={"error": "Invalid JSON format"}, status_code=400)
     except httpx.HTTPStatusError as e:
-        error_message = f"Telex API error: {str(e)}\nResponse: {e.response.text if hasattr(e, 'response') else 'No response text'}"
-        print(error_message)
+        error_message = f"Telex API error: {str(e)}"
+        logger.error(error_message)
         return JSONResponse(content={"error": error_message}, status_code=e.response.status_code if hasattr(e, 'response') else 500)
     except httpx.RequestError as e:
         error_message = f"Failed to send request to Telex: {str(e)}"
-        print(error_message)
+        logger.error(error_message)
         return JSONResponse(content={"error": error_message}, status_code=500)
     except Exception as e:
         error_message = f"Unexpected error: {str(e)}"
-        print(error_message)
+        logger.error(error_message)
         return JSONResponse(content={"error": error_message}, status_code=500)
