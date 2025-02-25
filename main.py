@@ -1,22 +1,10 @@
 import os
-import logging
 import json
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import httpx
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('zendesk_integration.log')
-    ]
-)
-logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -35,7 +23,6 @@ app.add_middleware(
 
 TELEX_CHANNEL_ID = os.getenv("TELEX_CHANNEL_ID")
 if not TELEX_CHANNEL_ID:
-    logger.error("TELEX_CHANNEL_ID is not set in environment variables!")
     raise ValueError("TELEX_CHANNEL_ID is not set in environment variables!")
 
 TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
@@ -43,16 +30,12 @@ TELEX_WEBHOOK_URL = f"https://ping.telex.im/v1/webhooks/{TELEX_CHANNEL_ID}"
 @app.post("/zendesk-integration")
 async def zendesk_integration(request: Request):
     try:
-        # Log incoming request
-        body = await request.body()
-        logger.info("Incoming request data: %s", body.decode())
-        
         # Parse JSON data
+        body = await request.body()
         data = await request.json()
         
         # Validate ticket data
         if not isinstance(data, dict) or "ticket" not in data:
-            logger.warning("Invalid request format - missing ticket data")
             return JSONResponse(
                 content={
                     "status": "error",
@@ -99,8 +82,6 @@ async def zendesk_integration(request: Request):
             )
         }
         
-        logger.info(f"Sending payload to Telex: {json.dumps(telex_payload, indent=2)}")
-        
         # Send to Telex
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -111,20 +92,17 @@ async def zendesk_integration(request: Request):
             )
             
             if response.status_code >= 400:
-                logger.error(f"Telex error response: {response.status_code}, {response.text}")
                 return JSONResponse(
                     content={"error": "Failed to send to Telex"},
                     status_code=response.status_code
                 )
             
-            logger.info(f"Successfully processed ticket #{ticket_id}")
             return JSONResponse(
                 content={"message": "Successfully sent to Telex"},
                 status_code=200
             )
             
     except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
         return JSONResponse(
             content={"error": "Internal server error"},
             status_code=500
